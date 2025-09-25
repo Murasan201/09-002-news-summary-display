@@ -37,3 +37,7 @@ This is a news summary bulletin board application project for programming beginn
 - `.env` file for API keys
 - Clear function separation for each major feature
 - Beginner-friendly variable and function names
+
+## Repository Information
+- GitHub Repository: https://github.com/Murasan201/09-001-news-summary-display
+- Default branch: `main`

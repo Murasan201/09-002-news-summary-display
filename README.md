@@ -4,9 +4,9 @@
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Raspberry Pi](https://img.shields.io/badge/platform-Raspberry%20Pi-red.svg)
 
-プログラミング初心者向けのニュース要約表示アプリです。複数のニュースサイトからRSSフィードを取得し、OpenAI APIで要約し、Raspberry PiのLCD1602ディスプレイに横スクロール表示します。
+プログラミング初心者向けのニュース要約表示アプリです。複数のニュースサイトからRSSフィードを取得し、OpenAI APIで要約し、Raspberry PiのSSD1306 OLEDディスプレイに日本語で横スクロール表示します。
 
-A news summarization display app for programming beginners. Fetches RSS feeds from multiple news sites, summarizes them using OpenAI API, and displays on LCD1602 connected to Raspberry Pi.
+A news summarization display app for programming beginners. Fetches RSS feeds from multiple news sites, summarizes them using OpenAI API, and displays in Japanese on SSD1306 OLED connected to Raspberry Pi.
 
 ## 📋 概要 | Overview
 
@@ -14,52 +14,61 @@ A news summarization display app for programming beginners. Fetches RSS feeds fr
 
 - **RSSフィード取得**: 複数のニュースサイトから最新AI関連記事を取得（APIキー不要）
 - **AI要約**: OpenAI API（gpt-5-mini）で複数記事を統合し250文字以内に要約
-- **LCD表示**: LCD1602ディスプレイに横スクロールで表示
+- **OLED表示**: SSD1306 OLEDディスプレイに日本語で横スクロール表示
 - **定期更新**: 3時間間隔でニュースを自動更新
-- **シミュレーションモード**: LCD未接続でもコンソールで動作確認可能
+- **シミュレーションモード**: OLED未接続でもコンソールで動作確認可能
 
 This application provides:
 
 - **RSS Feed Fetching**: Retrieves latest AI news from multiple sites (no API key required)
 - **AI Summarization**: Uses OpenAI API (gpt-5-mini) to summarize multiple articles within 250 characters
-- **LCD Display**: Shows scrolling text on LCD1602 display
+- **OLED Display**: Shows Japanese scrolling text on SSD1306 OLED display
 - **Auto Update**: Automatically refreshes news every 3 hours
-- **Simulation Mode**: Works on console even without LCD connection
+- **Simulation Mode**: Works on console even without OLED connection
 
 ## 🛠️ 必要な機器 | Hardware Requirements
 
 | 機器 | 説明 |
 |------|------|
 | Raspberry Pi 5 | メイン処理ユニット |
-| LCD1602（PCF8574T I²Cバックパック搭載） | 16文字x2行 I²C接続ディスプレイ（HD44780互換） |
-| BSS138レベル変換モジュール | 4チャンネル双方向（3.3V⇔5V変換） |
+| SSD1306 OLEDモジュール | 128×64ピクセル I²C接続ディスプレイ（日本語表示対応） |
+| BSS138レベル変換モジュール | 4チャンネル双方向（3.3V⇔5V変換）※5V OLED使用時のみ |
 | ジャンパーワイヤ | 配線用（オス-オス、10本程度） |
 | ブレッドボード | プロトタイプ作成用 |
+
+### ⚠️ 重要な注意事項
+
+**🔴 5V OLED を Raspberry Pi に直結しないでください！**
+
+- Raspberry Pi の GPIO は **3.3V** です
+- 5V OLED と直結すると、通信できないだけでなく **GPIO を破損する可能性** があります
+- **必ずレベル変換モジュール（BSS138方式）を使用** してください
+- 3.3V 動作の OLED モジュールの使用を推奨
 
 ## 🔧 セットアップ | Setup
 
 ### 1. ハードウェア接続 | Hardware Connection
 
-**重要**: Raspberry Pi（3.3V）とLCD1602（5V）の間に必ずレベル変換モジュールを使用してください。
-
-**接続図**:
+**レベル変換使用時**（5V OLED の場合）:
 ```
-Raspberry Pi 5 (3.3V) ⇔ レベル変換 ⇔ LCD1602 + PCF8574T (5V)
-
-Raspberry Pi 5 → レベル変換（LV側）
-3.3V (Pin 1)   → LV
-GND (Pin 6)    → GND
-SDA (Pin 3)    → LV1
-SCL (Pin 5)    → LV2
-
-レベル変換（HV側） → LCD1602
-HV               → VCC (5V from Pin 2)
-GND              → GND
-HV1              → SDA
-HV2              → SCL
+[Raspberry Pi 5]       [レベル変換]        [5V OLED]
+Pin 1  (3.3V)  ------> LV
+Pin 3  (GPIO2) ------> LV-SDA  ----> HV-SDA  ----> SDA
+Pin 5  (GPIO3) ------> LV-SCL  ----> HV-SCL  ----> SCL
+Pin 6  (GND)   ------> GND     <---- GND     <---- GND
+                       HV      <---- VCC (5V from Pin 2)
 ```
 
-**注意**: レベル変換なしで直接5V I²Cプルアップに接続すると、Raspberry Pi GPIOピンが破損する可能性があります。
+**3.3V OLED の場合**（レベル変換不要、推奨）:
+```
+[Raspberry Pi 5]       [3.3V OLED]
+Pin 1  (3.3V)  ------> VCC
+Pin 3  (GPIO2) ------> SDA
+Pin 5  (GPIO3) ------> SCL
+Pin 6  (GND)   ------> GND
+```
+
+**注意**: 5V OLEDの場合、レベル変換なしで直接接続すると、Raspberry Pi GPIOピンが破損する可能性があります。
 
 ### 2. システム設定 | System Configuration
 
@@ -73,6 +82,8 @@ sudo apt update
 sudo apt install python3-pip python3-venv i2c-tools
 
 # I2C接続確認 | Verify I2C connection
+# OLEDが接続されていれば 0x3C または 0x3D が表示されます
+# If OLED is connected, you should see 0x3C or 0x3D
 sudo i2cdetect -y 1
 ```
 
@@ -89,6 +100,12 @@ source venv/bin/activate
 
 # 依存関係をインストール | Install dependencies
 pip install -r requirements.txt
+
+# 日本語フォントをダウンロード | Download Japanese font
+cd assets/fonts/
+wget https://github.com/googlefonts/noto-cjk/raw/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf
+wget https://raw.githubusercontent.com/googlefonts/noto-cjk/main/LICENSE
+cd ../..
 ```
 
 ### 4. APIキー設定 | API Key Configuration

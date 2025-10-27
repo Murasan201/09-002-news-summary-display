@@ -44,3 +44,11 @@ Thumbs.db
 
 # Temporary files
 *.tmp
+
+# Fonts (large files)
+assets/fonts/*.otf
+assets/fonts/*.ttf
+
+# Reference projects (not part of main project)
+reference-oled/
+reference-project/

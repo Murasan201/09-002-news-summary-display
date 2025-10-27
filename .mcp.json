@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "gemini-google-search": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "mcp-gemini-google-search"
+      ],
+      "env": {
+        "GEMINI_API_KEY": "AIzaSyAGyQGMIiXNVjlUGao0Um0Rj7EN0PTw7go",
+        "GEMINI_MODEL": "gemini-2.5-flash"
+      }
+    }
+  }
+}

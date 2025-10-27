@@ -4,48 +4,62 @@
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Raspberry Pi](https://img.shields.io/badge/platform-Raspberry%20Pi-red.svg)
 
-プログラミング初心者向けのニュース要約表示アプリです。最新ニュースをOpenAI APIで要約し、Raspberry PiのLCD1602ディスプレイに横スクロール表示します。
+プログラミング初心者向けのニュース要約表示アプリです。複数のニュースサイトからRSSフィードを取得し、OpenAI APIで要約し、Raspberry PiのLCD1602ディスプレイに横スクロール表示します。
 
-A news summarization display app for programming beginners. Fetches latest news, summarizes them using OpenAI API, and displays on LCD1602 connected to Raspberry Pi.
+A news summarization display app for programming beginners. Fetches RSS feeds from multiple news sites, summarizes them using OpenAI API, and displays on LCD1602 connected to Raspberry Pi.
 
 ## 📋 概要 | Overview
 
 このアプリは以下の機能を提供します：
 
-- **最新ニュース取得**: NewsAPIから日本の最新ニュースを取得
-- **AI要約**: OpenAI APIを使用してニュースを100文字程度に要約
+- **RSSフィード取得**: 複数のニュースサイトから最新AI関連記事を取得（APIキー不要）
+- **AI要約**: OpenAI API（gpt-5-mini）で複数記事を統合し250文字以内に要約
 - **LCD表示**: LCD1602ディスプレイに横スクロールで表示
-- **定期更新**: 設定可能な間隔でニュースを自動更新
-- **エラーハンドリング**: ネットワーク障害やAPI制限に対応
+- **定期更新**: 3時間間隔でニュースを自動更新
+- **シミュレーションモード**: LCD未接続でもコンソールで動作確認可能
 
 This application provides:
 
-- **Latest News Fetching**: Retrieves Japan's latest news from NewsAPI
-- **AI Summarization**: Uses OpenAI API to summarize news in ~100 characters
+- **RSS Feed Fetching**: Retrieves latest AI news from multiple sites (no API key required)
+- **AI Summarization**: Uses OpenAI API (gpt-5-mini) to summarize multiple articles within 250 characters
 - **LCD Display**: Shows scrolling text on LCD1602 display
-- **Auto Update**: Automatically refreshes news at configurable intervals
-- **Error Handling**: Handles network failures and API limitations
+- **Auto Update**: Automatically refreshes news every 3 hours
+- **Simulation Mode**: Works on console even without LCD connection
 
 ## 🛠️ 必要な機器 | Hardware Requirements
 
 | 機器 | 説明 |
 |------|------|
 | Raspberry Pi 5 | メイン処理ユニット |
-| LCD1602 | 16文字x2行 I²C接続ディスプレイ |
-| ジャンパーワイヤ | 配線用 |
+| LCD1602（PCF8574T I²Cバックパック搭載） | 16文字x2行 I²C接続ディスプレイ（HD44780互換） |
+| BSS138レベル変換モジュール | 4チャンネル双方向（3.3V⇔5V変換） |
+| ジャンパーワイヤ | 配線用（オス-オス、10本程度） |
 | ブレッドボード | プロトタイプ作成用 |
 
 ## 🔧 セットアップ | Setup
 
 ### 1. ハードウェア接続 | Hardware Connection
 
+**重要**: Raspberry Pi（3.3V）とLCD1602（5V）の間に必ずレベル変換モジュールを使用してください。
+
+**接続図**:
 ```
-LCD1602 → Raspberry Pi
-VCC     → 5V (Pin 2)
-GND     → GND (Pin 6)
-SDA     → SDA (Pin 3, GPIO 2)
-SCL     → SCL (Pin 5, GPIO 3)
+Raspberry Pi 5 (3.3V) ⇔ レベル変換 ⇔ LCD1602 + PCF8574T (5V)
+
+Raspberry Pi 5 → レベル変換（LV側）
+3.3V (Pin 1)   → LV
+GND (Pin 6)    → GND
+SDA (Pin 3)    → LV1
+SCL (Pin 5)    → LV2
+
+レベル変換（HV側） → LCD1602
+HV               → VCC (5V from Pin 2)
+GND              → GND
+HV1              → SDA
+HV2              → SCL
 ```
+
+**注意**: レベル変換なしで直接5V I²Cプルアップに接続すると、Raspberry Pi GPIOピンが破損する可能性があります。
 
 ### 2. システム設定 | System Configuration
 
@@ -79,6 +93,8 @@ pip install -r requirements.txt
 
 ### 4. APIキー設定 | API Key Configuration
 
+**必要なAPIキー**: OpenAI APIキーのみ（RSSフィード取得にAPIキーは不要）
+
 ```bash
 # 環境設定ファイルを作成 | Create environment file
 cp .env.template .env
@@ -87,18 +103,21 @@ cp .env.template .env
 `.env`ファイルを編集してAPIキーを設定：
 
 ```env
-# NewsAPI: https://newsapi.org/
-NEWS_API_KEY=your_newsapi_key_here
-
 # OpenAI: https://platform.openai.com/
 OPENAI_API_KEY=your_openai_api_key_here
 
 # 更新間隔（分） | Update interval (minutes)
-UPDATE_INTERVAL=30
+UPDATE_INTERVAL=180
 
-# 取得ニュース件数 | Number of news articles
-NEWS_COUNT=5
+# 各サイトから取得する記事数 | Number of articles per site
+MAX_ARTICLES=3
 ```
+
+**OpenAI APIキーの取得方法**:
+1. https://platform.openai.com/api-keys にアクセス
+2. アカウント作成またはログイン
+3. "Create new secret key" をクリック
+4. 生成されたキーを`.env`ファイルに設定
 
 ## 🚀 実行方法 | Usage
 
@@ -159,19 +178,25 @@ sudo systemctl start news-display.service
 
 ## 🔧 主な機能 | Key Features
 
-### NewsDisplayAppクラス | NewsDisplayApp Class
+### 主要関数 | Main Functions
 
-- **`get_latest_news()`**: NewsAPIから最新ニュースを取得
-- **`summarize_text()`**: OpenAI APIでテキストを要約
+- **`init_lcd()`**: LCDディスプレイの初期化（シミュレーションモード対応）
+- **`fetch_latest_entries()`**: RSSフィードから最新記事を取得
+- **`summarize_with_chatgpt()`**: OpenAI API（gpt-5-mini）で複数記事を統合要約
 - **`display_on_lcd()`**: LCDに横スクロール表示
-- **`run_display_cycle()`**: 1回の表示サイクルを実行
-- **`run()`**: メインループ
+- **`main()`**: メインループ（RSSフィード取得→要約→表示を繰り返し）
+
+### RSSフィードソース | RSS Feed Sources
+
+- **MIT Technology Review AI**: AI関連の最新研究・技術トレンド（英語）
+- **AI News**: AI産業応用・製品リリース情報（英語）
+- **ITmedia AI+**: 国内AI動向の詳細解説（日本語）
 
 ### 設定可能な項目 | Configurable Options
 
-- 更新間隔 (UPDATE_INTERVAL)
-- 取得ニュース件数 (NEWS_COUNT)
-- LCD I²Cアドレス (コード内で変更可能)
+- 更新間隔 (UPDATE_INTERVAL) - デフォルト: 180分（3時間）
+- 各サイトから取得する記事数 (MAX_ARTICLES) - デフォルト: 3件
+- LCD I²Cアドレス (コード内で変更可能) - デフォルト: 0x27
 
 ## 🐛 トラブルシューティング | Troubleshooting
 
@@ -185,11 +210,29 @@ sudo i2cdetect -y 1
 # Change address (0x27) in code to actual address
 ```
 
-### APIエラー | API Errors
+**注意**: LCD未接続の場合、自動的にシミュレーションモードで動作します。コンソールに `[LCD表示]` プレフィックス付きで出力されます。
 
-- APIキーが正しく設定されているか確認
+### RSSフィード取得エラー | RSS Feed Errors
+
 - インターネット接続を確認
-- API利用制限をチェック
+- RSSフィードURLが変更されていないかチェック
+- ログファイル（news_display.log）でエラー詳細を確認
+
+### OpenAI APIエラー | OpenAI API Errors
+
+- APIキーが正しく設定されているか確認（`.env`ファイル）
+- OpenAI APIの利用制限をチェック
+- gpt-5-miniモデルが利用可能か確認
+
+### ライブラリインストールエラー | Library Installation Errors
+
+```bash
+# 必要なライブラリの確認 | Check required libraries
+pip list | grep -E "(feedparser|openai|RPLCD|smbus2|python-dotenv)"
+
+# すべて再インストール | Reinstall all
+pip install -r requirements.txt --force-reinstall
+```
 
 ### 権限エラー | Permission Errors
 
@@ -210,11 +253,13 @@ sudo usermod -a -G i2c,spi,gpio pi
 
 このプロジェクトは以下の技術を学習できます：
 
-- **API統合**: NewsAPI、OpenAI APIの使用
-- **ハードウェア制御**: Raspberry Pi、I²C通信
-- **エラーハンドリング**: ネットワーク障害対応
-- **ログ管理**: 適切なログ出力
-- **環境変数管理**: 設定の外部化
+- **RSSフィード解析**: feedparserライブラリによるXML解析
+- **API統合**: OpenAI API（gpt-5-mini）の使用
+- **プロンプトエンジニアリング**: 効果的な要約生成プロンプトの設計
+- **ハードウェア制御**: Raspberry Pi、I²C通信、LCD制御
+- **エラーハンドリング**: ネットワーク障害対応、シミュレーションモード
+- **ログ管理**: ファイル・コンソール両方への適切なログ出力
+- **環境変数管理**: 機密情報の安全な管理
 
 ## 📄 ライセンス | License
 
@@ -226,10 +271,13 @@ MIT License - 詳細は[LICENSE](LICENSE)ファイルを参照
 
 ## 📚 参考リンク | Reference Links
 
-- [NewsAPI Documentation](https://newsapi.org/docs)
+- [feedparser Documentation](https://feedparser.readthedocs.io/)
 - [OpenAI API Documentation](https://platform.openai.com/docs)
 - [RPLCD Library](https://rplcd.readthedocs.io/)
 - [Raspberry Pi GPIO Pinout](https://pinout.xyz/)
+- [MIT Technology Review AI](https://www.technologyreview.com/tag/artificial-intelligence/)
+- [AI News](https://artificialintelligence-news.com/)
+- [ITmedia AI+](https://www.itmedia.co.jp/aiplus/)
 
 ---
 

@@ -12,6 +12,7 @@ import sys
 import time
 import logging
 import feedparser
+import threading
 from datetime import datetime
 from typing import List, Dict, Optional
 from dotenv import load_dotenv
@@ -46,7 +47,7 @@ if not OPENAI_API_KEY:
     raise RuntimeError("環境変数 OPENAI_API_KEY を設定してください。")
 
 # OpenAI クライアントの初期化
-openai_client = OpenAI(api_key=OPENAI_API_KEY)
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # 設定値の取得
 UPDATE_INTERVAL = int(os.getenv('UPDATE_INTERVAL', 180))
@@ -63,13 +64,13 @@ FONT_PATH = "assets/fonts/NotoSansCJKjp-Regular.otf"
 FONT_SIZE_TITLE = 12
 FONT_SIZE_BODY = 10
 LINE_SPACING = 2
-SCROLL_SPEED_PX = 2
-FRAME_DELAY_SEC = 0.05
+SCROLL_SPEED_PX = 8  # スクロール速度を高速化（2→4→8）
+FRAME_DELAY_SEC = 0.02  # フレーム遅延をさらに短縮（0.05→0.03→0.02）
 
 # 取得するRSSフィード一覧
 FEEDS = {
     "MIT Technology Review AI": "https://www.technologyreview.com/tag/artificial-intelligence/feed/",
-    "AI News": "https://artificialintelligence-news.com/feed/",
+    "TechCrunch AI": "https://techcrunch.com/category/artificial-intelligence/feed/",
     "ITmedia AI+": "https://rss.itmedia.co.jp/rss/2.0/aiplus.xml"
 }
 
@@ -156,16 +157,70 @@ def summarize_with_chatgpt(site_name: str, items: List[str]) -> str:
             messages=[
                 {"role": "system", "content": "あなたは有能な技術ニュース要約アシスタントです。"},
                 {"role": "user", "content": prompt}
-            ]
+            ],
+            max_completion_tokens=4000  # 推論トークン2000-3000 + 出力トークン200-500を確保
         )
 
         text = response.choices[0].message.content.strip()
+
+        # トークン使用量をログに記録
+        usage = response.usage
         logging.info(f"{site_name}の要約を生成しました")
+        logging.info(f"トークン使用量 - 入力: {usage.prompt_tokens}, 出力: {usage.completion_tokens}, 合計: {usage.total_tokens}")
+
+        # gpt-5-miniの場合、reasoning tokensも記録
+        if hasattr(usage, 'completion_tokens_details') and usage.completion_tokens_details:
+            if hasattr(usage.completion_tokens_details, 'reasoning_tokens'):
+                logging.info(f"推論トークン: {usage.completion_tokens_details.reasoning_tokens}")
+
         return text
 
     except Exception as e:
         logging.error(f"要約生成エラー: {e}")
         return f"{site_name}の要約生成に失敗しました"
+
+def display_loading_animation(device, font, site_name: str, stop_event: threading.Event):
+    """
+    ローディングアニメーションを表示（API呼び出し中）
+
+    Args:
+        device: OLEDデバイス
+        font: 使用するフォント
+        site_name: サイト名
+        stop_event: 停止イベント
+    """
+    if device is None:
+        # シミュレーションモード
+        animation_chars = [".", "..", "..."]
+        idx = 0
+        while not stop_event.is_set():
+            print(f"\r[OLED表示] {site_name} - ニュースを生成中{animation_chars[idx % 3]}", end='', flush=True)
+            idx += 1
+            time.sleep(0.5)
+        print()  # 改行
+        return
+
+    try:
+        animation_chars = [".", "..", "..."]
+        idx = 0
+
+        while not stop_event.is_set():
+            image = Image.new("1", (OLED_WIDTH, OLED_HEIGHT))
+            draw = ImageDraw.Draw(image)
+
+            # サイト名を上部に表示
+            draw.text((2, 10), site_name, font=font, fill=255)
+
+            # ローディングメッセージを中央に表示
+            loading_text = f"生成中{animation_chars[idx % 3]}"
+            draw.text((30, 35), loading_text, font=font, fill=255)
+
+            device.display(image)
+            idx += 1
+            time.sleep(0.5)
+
+    except Exception as e:
+        logging.error(f"ローディング表示エラー: {e}")
 
 def display_on_oled(device, font, text: str, y_position: int = 0, scroll: bool = True):
     """
@@ -209,6 +264,9 @@ def display_on_oled(device, font, text: str, y_position: int = 0, scroll: bool =
             x_position -= SCROLL_SPEED_PX
             time.sleep(FRAME_DELAY_SEC)
 
+        # 最後に画面をクリアして完全にスクロールアウト
+        image = Image.new("1", (OLED_WIDTH, OLED_HEIGHT))
+        device.display(image)
         time.sleep(0.5)
 
     except Exception as e:
@@ -256,45 +314,97 @@ def main():
 
     try:
         while True:
-            now = datetime.now().strftime("%Y-%m-%d %H:%M")
+            # 各RSSフィードからニュースを取得・要約し、保存
+            all_summaries = []
 
-            # ヘッダーを表示
-            display_on_oled(device, font_title, f"AIニュース要約 {now}", y_position=25, scroll=True)
-            time.sleep(1)
-
-            # 各RSSフィードからニュースを取得・要約
             for site_name, feed_url in FEEDS.items():
                 logging.info(f"{site_name} から記事を取得中...")
                 entries = fetch_latest_entries(feed_url, MAX_ARTICLES)
 
                 if not entries:
-                    display_on_oled(device, font_body, f"{site_name}: 取得失敗", y_position=25, scroll=True)
-                    time.sleep(2)
+                    logging.warning(f"{site_name}: 記事の取得に失敗しました")
                     continue
 
-                # サイト名を表示
-                display_on_oled(device, font_title, f"[{site_name}]", y_position=25, scroll=True)
+                # ローディングアニメーションと並行して要約を生成
+                logging.info(f"{site_name}: ニュース生成を開始...")
+                stop_event = threading.Event()
+                summary_result = [None]
+
+                def generate_summary_thread():
+                    summary_result[0] = summarize_with_chatgpt(site_name, entries)
+
+                # 要約生成スレッドとローディング表示スレッドを開始
+                generation_thread = threading.Thread(target=generate_summary_thread)
+                loading_thread = threading.Thread(target=display_loading_animation, args=(device, font_body, site_name, stop_event))
+
+                generation_thread.start()
+                loading_thread.start()
+
+                # 要約生成が完了するまで待機
+                generation_thread.join()
+
+                # ローディング表示を停止
+                stop_event.set()
+                loading_thread.join()
+                logging.info(f"{site_name}: ニュース生成完了")
+
+                summary = summary_result[0]
+                logging.info(f"生成された要約（{len(summary)}文字）: {summary[:200]}...")
+
+                # 要約を複数行に分割して保存
+                summary_lines = summary.split('\n')
+                summary_lines = [line.strip() for line in summary_lines if line.strip()]
+                logging.info(f"要約を{len(summary_lines)}行に分割")
+
+                all_summaries.append({
+                    'site_name': site_name,
+                    'summary_lines': summary_lines
+                })
+
+            # 次の更新時間まで、取得したニュースをループ表示
+            update_time = time.time() + (UPDATE_INTERVAL * 60)
+            loop_count = 0
+
+            logging.info(f"ニュースのループ表示を開始します（{UPDATE_INTERVAL//60}時間後に次の更新）")
+
+            while time.time() < update_time:
+                loop_count += 1
+                logging.info(f"ループ {loop_count} 回目")
+
+                # 現在時刻のヘッダーを表示
+                now = datetime.now().strftime("%Y-%m-%d %H:%M")
+                display_on_oled(device, font_title, f"AIニュース要約 {now}", y_position=25, scroll=True)
                 time.sleep(1)
 
-                # 要約を生成して表示
-                summary = summarize_with_chatgpt(site_name, entries)
+                # 取得した全ニュースを順に表示
+                for summary_data in all_summaries:
+                    # 更新時間に達したらループを終了
+                    if time.time() >= update_time:
+                        logging.info("更新時間に達しました。ループを終了します")
+                        break
 
-                # 要約を複数行に分割して表示
-                summary_lines = summary.split('\n')
-                for line in summary_lines:
-                    if line.strip():  # 空行をスキップ
-                        display_on_oled(device, font_body, line.strip(), y_position=25, scroll=True)
+                    # サイト名を表示
+                    display_on_oled(device, font_title, f"[{summary_data['site_name']}]", y_position=25, scroll=True)
+                    time.sleep(0.5)
+
+                    # 要約の各行を表示
+                    for i, line in enumerate(summary_data['summary_lines'], 1):
+                        # 更新時間に達したらループを終了
+                        if time.time() >= update_time:
+                            logging.info("更新時間に達しました。ループを終了します")
+                            break
+
+                        display_on_oled(device, font_body, line, y_position=25, scroll=True)
                         time.sleep(1)
 
-                time.sleep(2)
+                    time.sleep(2)
 
-            # 次の更新まで待機
-            wait_seconds = UPDATE_INTERVAL * 60
-            logging.info(f"{UPDATE_INTERVAL//60}時間後に次の更新を行います...")
+                # 更新時間に達していたらループを抜ける
+                if time.time() >= update_time:
+                    break
 
-            # 待機メッセージを表示
-            display_on_oled(device, font_body, f"次回更新: {UPDATE_INTERVAL//60}時間後", y_position=25, scroll=False)
-            time.sleep(wait_seconds)
+            logging.info(f"ニュースのループ表示を終了しました（合計 {loop_count} 回）")
+            logging.info("新しいニュースを取得します...")
 
     except KeyboardInterrupt:
         logging.info("アプリケーションを終了します")

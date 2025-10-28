@@ -3,21 +3,33 @@
 ## 1. 必要なハードウェア
 - Raspberry Pi 5本体
 - microSDカード（Raspberry Pi OSインストール済み）
-- LCD1602ディスプレイモジュール（PCF8574T I²Cバックパック搭載、HD44780互換）
-- BSS138双方向ロジックレベル変換モジュール（4チャンネル、3.3V⇔5V変換）
-- ジャンパーワイヤ（オス-オス、10本程度）
+- SSD1306 OLEDディスプレイモジュール（I²C接続、128×64ピクセル）
+  - 3.3V動作版を推奨（5V版の場合はレベル変換モジュールが必要）
+- BSS138双方向ロジックレベル変換モジュール（5V版OLEDを使用する場合のみ）
+- ジャンパーワイヤ（オス-オス、4～10本程度）
 - ブレッドボード（汎用サイズ）
 - 電源（公式5V/3A電源アダプタ推奨）
 
 ## 2. ハードウェア接続
 
-⚠️ **重要**: Raspberry Pi（3.3V）とLCD1602（5V）の間に必ずレベル変換モジュールを使用してください。直接接続するとRaspberry Pi GPIOピンが破損する可能性があります。
+### 2.1 3.3V版OLEDを使用する場合（推奨）
 
-### 2.1 接続図
+**Raspberry Pi 5 ⇔ SSD1306 OLED (3.3V版)**
 
-**Raspberry Pi 5 (3.3V側) ⇔ レベル変換モジュール ⇔ LCD1602 + PCF8574T (5V側)**
+| Raspberry Pi 5 | SSD1306 OLED |
+|----------------|--------------|
+| 3.3V (Pin 1)   | VCC          |
+| GND (Pin 6)    | GND          |
+| SDA (Pin 3)    | SDA          |
+| SCL (Pin 5)    | SCL          |
 
-| Raspberry Pi 5 | レベル変換（LV側）| レベル変換（HV側）| PCF8574T/LCD |
+### 2.2 5V版OLEDを使用する場合
+
+⚠️ **重要**: Raspberry Pi（3.3V）と5V版OLED間に必ずレベル変換モジュールを使用してください。直接接続するとRaspberry Pi GPIOピンが破損する可能性があります。
+
+**Raspberry Pi 5 (3.3V側) ⇔ レベル変換モジュール ⇔ SSD1306 OLED (5V版)**
+
+| Raspberry Pi 5 | レベル変換（LV側）| レベル変換（HV側）| SSD1306 OLED |
 |----------------|------------------|------------------|--------------|
 | 3.3V (Pin 1)   | LV               | -                | -            |
 | 5V (Pin 2)     | -                | HV               | VCC          |
@@ -25,11 +37,19 @@
 | SDA (Pin 3)    | LV1              | HV1              | SDA          |
 | SCL (Pin 5)    | LV2              | HV2              | SCL          |
 
-### 2.2 配線手順
+### 2.3 配線手順
+
+**3.3V版OLEDの場合:**
+1. 電源を切った状態で配線を行う
+2. OLEDモジュールをブレッドボードに設置
+3. Raspberry PiとOLEDを直接接続（3.3V、GND、SDA、SCL）
+4. 配線を確認後、電源を投入
+
+**5V版OLEDの場合:**
 1. 電源を切った状態で配線を行う
 2. レベル変換モジュールをブレッドボードに設置
 3. Raspberry Piとレベル変換モジュールのLV側を接続（3.3V、GND、SDA、SCL）
-4. レベル変換モジュールのHV側とLCD1602を接続（5V、GND、SDA、SCL）
+4. レベル変換モジュールのHV側とOLEDを接続（5V、GND、SDA、SCL）
 5. 配線を確認後、電源を投入
 
 ## 3. ソフトウェアセットアップ
@@ -49,7 +69,7 @@ sudo apt install python3-pip python3-venv i2c-tools
 ### 3.3 I2C接続を確認
 ```bash
 sudo i2cdetect -y 1
-# LCD のアドレス（通常 0x27 または 0x3f）が表示されることを確認
+# OLED のアドレス（通常 0x3c）が表示されることを確認
 ```
 
 ### 3.4 Python仮想環境を作成
@@ -60,7 +80,7 @@ source venv/bin/activate
 
 ### 3.5 必要なライブラリをインストール
 
-このプロジェクトでは、RSS解析、AI API利用、LCD制御、I²C通信、環境変数管理に関する5つのPythonライブラリを使用します。
+このプロジェクトでは、RSS解析、AI API利用、OLED制御、画像処理、環境変数管理に関連するPythonライブラリを使用します。
 
 #### RSSフィード解析ライブラリのインストール
 ```bash
@@ -72,14 +92,14 @@ pip3 install feedparser
 pip3 install openai
 ```
 
-#### LCD制御ライブラリのインストール
+#### OLED制御ライブラリのインストール
 ```bash
-pip3 install RPLCD
+pip3 install luma.oled
 ```
 
-#### I²C通信ライブラリのインストール
+#### 画像処理・フォント描画ライブラリのインストール
 ```bash
-pip3 install smbus2
+pip3 install pillow
 ```
 
 #### 環境変数管理ライブラリのインストール
@@ -94,16 +114,46 @@ pip install -r requirements.txt
 
 #### インストール確認
 ```bash
-pip list | grep -E "(feedparser|openai|RPLCD|smbus2|python-dotenv)"
+pip list | grep -E "(feedparser|openai|luma|pillow|python-dotenv)"
 ```
 
 各ライブラリが表示されれば、インストールが正常に完了しています。
 
-## 4. 環境変数の設定
+## 4. フォントファイルの配置
+
+OLEDに日本語を表示するため、日本語フォントファイルを配置します。
+
+### 4.1 フォントディレクトリの作成
+
+```bash
+mkdir -p assets/fonts
+```
+
+### 4.2 フォントファイルの配置
+
+以下のいずれかの方法でフォントファイルを配置します：
+
+**方法1: Noto Sans CJK JPをダウンロード（推奨）**
+```bash
+cd assets/fonts
+wget https://github.com/notofonts/noto-cjk/raw/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf
+cd ../..
+```
+
+**方法2: システムフォントを使用**
+```bash
+# システムにインストールされているフォントを使用する場合
+# コード内のFONT_PATHを適宜変更してください
+# 例: /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
+```
+
+フォントファイルが `assets/fonts/NotoSansCJKjp-Regular.otf` に配置されていることを確認してください。
+
+## 5. 環境変数の設定
 
 APIキーなどの機密情報を安全に管理するため、環境変数設定ファイルを作成します。
 
-### 4.1 テンプレートファイルの作成
+### 5.1 テンプレートファイルの作成
 
 ```bash
 nano .env.template
@@ -130,13 +180,13 @@ MAX_ARTICLES=3
 
 このテンプレートファイルは、実際の設定ファイルを作成する際の雛形となります。
 
-### 4.2 実際の設定ファイルを作成
+### 5.2 実際の設定ファイルを作成
 
 ```bash
 cp .env.template .env
 ```
 
-### 4.3 OpenAI APIキーの取得
+### 5.3 OpenAI APIキーの取得
 
 OpenAI APIは、高性能な自然言語処理機能を提供するサービスで、ニュース記事の要約生成に最適です。gpt-5-miniモデルを使用することで、日本語の文章も正確に理解し、適切な要約文を生成できます。
 
@@ -144,7 +194,7 @@ APIキーを取得するには、OpenAI Platformの公式サイト（https://pla
 
 OpenAI APIは使用量に応じた従量課金制ですが、新規アカウントには無料クレジットが付与されます。gpt-5-miniモデルは低コストで動作するため、学習目的での利用には十分対応できます。
 
-### 4.4 環境変数ファイルの編集
+### 5.4 環境変数ファイルの編集
 
 `.env`ファイルに、取得したOpenAI APIキーを設定します：
 
@@ -164,20 +214,29 @@ MAX_ARTICLES=3
 
 **重要**: `.env`ファイルは`.gitignore`により自動的にGit管理から除外されます。APIキーが誤ってGitHubにアップロードされることはありません。
 
-## 5. プログラムの実行とテスト
+## 6. プログラムの実行とテスト
 
 作成したアプリケーションを実際に実行し、動作確認を行います。
 
-### 5.1 実行前の確認事項
+### 6.1 実行前の確認事項
 
 #### ハードウェア接続の確認
-LCD1602がRaspberry Piに正しく接続されているか、I²Cが有効化されているかをチェックします。
+OLEDがRaspberry Piに正しく接続されているか、I²Cが有効化されているかをチェックします。
 
 ```bash
 sudo i2cdetect -y 1
 ```
 
-このコマンドで「27」または「3F」のアドレスが表示されることを確認します。
+このコマンドで「3c」のアドレスが表示されることを確認します。
+
+#### フォントファイルの確認
+日本語フォントファイルが正しく配置されているかを確認します。
+
+```bash
+ls -l assets/fonts/NotoSansCJKjp-Regular.otf
+```
+
+フォントファイルが存在することを確認します。
 
 #### 環境変数の確認
 `.env`ファイルに正しいAPIキーが設定されているかをチェックします。
@@ -192,12 +251,12 @@ APIキーが「your_openai_api_key_here」のままになっていないこと�
 必要なPythonライブラリが正しくインストールされているかをチェックします。
 
 ```bash
-pip list | grep -E "(feedparser|openai|RPLCD|smbus2|python-dotenv)"
+pip list | grep -E "(feedparser|openai|luma|pillow|python-dotenv)"
 ```
 
 すべてのライブラリが表示されることを確認します。
 
-### 5.2 テスト実行
+### 6.2 テスト実行
 ```bash
 python3 news_summary_display.py
 ```
@@ -205,31 +264,40 @@ python3 news_summary_display.py
 正常に実行された場合、以下のような出力が表示されます：
 
 ```
-LCDライブラリが見つかりません。シミュレーションモードで実行します。
-2024-01-15 08:00:01 - INFO - LCDはシミュレーションモードで動作します
+2024-01-15 08:00:01 - INFO - I²C初期化完了: アドレス 0x3C, ポート 1
+2024-01-15 08:00:01 - INFO - OLED初期化完了: 128×64
+2024-01-15 08:00:01 - INFO - フォント読み込み完了: assets/fonts/NotoSansCJKjp-Regular.otf
 2024-01-15 08:00:01 - INFO - ニュース要約掲示板アプリを開始します（更新間隔: 180分 = 3時間）
 2024-01-15 08:00:02 - INFO - MIT Technology Review AI から記事を取得中...
 2024-01-15 08:00:03 - INFO - 3件の記事を取得しました
 2024-01-15 08:00:05 - INFO - MIT Technology Review AIの要約を生成しました
-[LCD表示] AIニュース要約 (2024-01-15 08:00)
-[LCD表示] [MIT Technology Review AI]
-[LCD表示] 最新のAI研究では、大規模言語モデルの効率化と新しい機械学習手法が注目されています。
 ```
 
-LCDが接続されている場合は、実際のディスプレイにニュース要約が横スクロール表示されます。
+OLEDが接続されている場合は、実際のディスプレイにニュース要約が横スクロール表示されます。
 
-### 5.3 動作確認のポイント
+OLEDライブラリが見つからない場合は、シミュレーションモードで動作します：
+
+```
+OLEDライブラリが見つかりません。シミュレーションモードで実行します。
+インストール: pip install luma.oled pillow
+2024-01-15 08:00:01 - INFO - OLEDはシミュレーションモードで動作します
+[OLED表示] AIニュース要約 2024-01-15 08:00
+[OLED表示] [MIT Technology Review AI]
+[OLED表示] 最新のAI研究では、大規模言語モデルの効率化と新しい機械学習手法が注目されています。
+```
+
+### 6.3 動作確認のポイント
 
 1. **RSSフィード取得**: ログに「○件の記事を取得しました」と表示されることを確認
 2. **AI要約生成**: ログに「○○の要約を生成しました」と表示されることを確認
-3. **LCD表示**: シミュレーションモードの場合はコンソールに、実機の場合はLCDに表示されることを確認
+3. **OLED表示**: シミュレーションモードの場合はコンソールに、実機の場合はOLEDに表示されることを確認
 
-### 5.4 バックグラウンド実行
+### 6.4 バックグラウンド実行
 ```bash
 nohup python3 news_summary_display.py &
 ```
 
-### 5.3 自動起動設定（オプション）
+### 6.5 自動起動設定（オプション）
 ```bash
 # systemdサービスファイルを作成
 sudo nano /etc/systemd/system/news-display.service
@@ -259,14 +327,24 @@ sudo systemctl enable news-display.service
 sudo systemctl start news-display.service
 ```
 
-## 6. トラブルシューティング
+## 7. トラブルシューティング
 
-### LCD が動作しない場合
+### OLED が動作しない場合
 - I²C接続を確認
-- `sudo i2cdetect -y 1` でアドレスを確認
-- コード内のI²Cアドレス（0x27）を実際のアドレスに変更
+- `sudo i2cdetect -y 1` でアドレスを確認（通常0x3c）
+- コード内のI²Cアドレス（0x3c）を実際のアドレスに変更
+- 配線を確認（3.3V版と5V版で配線が異なります）
+- レベル変換モジュールの動作確認（5V版OLEDの場合）
 
-**注意**: LCD未接続の場合、自動的にシミュレーションモードで動作します。コンソールに `[LCD表示]` プレフィックス付きで出力されます。
+**注意**: OLED未接続の場合、自動的にシミュレーションモードで動作します。コンソールに `[OLED表示]` プレフィックス付きで出力されます。
+
+### フォントが表示されない場合
+- フォントファイルが正しく配置されているか確認
+  ```bash
+  ls -l assets/fonts/NotoSansCJKjp-Regular.otf
+  ```
+- フォントファイルのパスがコード内の設定と一致しているか確認
+- デフォルトフォントで代替表示されている場合は、フォントファイルを配置してください
 
 ### RSSフィード取得エラーが発生する場合
 - インターネット接続を確認
@@ -281,7 +359,7 @@ sudo systemctl start news-display.service
 ### ライブラリインストールエラーが発生する場合
 ```bash
 # 必要なライブラリの確認
-pip list | grep -E "(feedparser|openai|RPLCD|smbus2|python-dotenv)"
+pip list | grep -E "(feedparser|openai|luma|pillow|python-dotenv)"
 
 # すべて再インストール
 pip install -r requirements.txt --force-reinstall

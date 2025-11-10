@@ -28,6 +28,9 @@ env/
 # Environment Variables (機密情報)
 .env
 
+# MCP Configuration (機密情報 - APIキーを含む)
+.mcp.json
+
 # IDE
 .vscode/
 .idea/

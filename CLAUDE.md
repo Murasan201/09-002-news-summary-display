@@ -13,12 +13,48 @@
 - Default branch: `main`
 - Create feature branches from `main`
 - Run lint and typecheck before committing
+- **CRITICAL: Security Check Before Commit**
+  - ⚠️ **ALWAYS verify no sensitive information before git add/commit**
+  - Check for API keys, tokens, passwords, or credentials
+  - Verify `.env`, `.mcp.json`, and other config files are in `.gitignore`
+  - Review all staged files with `git diff --cached`
+  - Never commit files containing secrets to version control
 
 ## Code Style
 - Follow existing code conventions in the project
 - Use TypeScript for type safety
 - No comments unless specifically requested
 - Follow security best practices
+
+## Security Requirements
+
+### API Key Management
+- **MANDATORY: Use Environment Variables for All API Keys**
+  - ✅ Store API keys in `.env` file (for application config)
+  - ✅ Store API keys in `.mcp.json` file (for MCP tools config)
+  - ❌ NEVER hardcode API keys in source code
+  - ❌ NEVER commit `.env` or `.mcp.json` files to Git
+
+### Pre-Commit Security Checklist
+Before every `git add` and `git commit`:
+1. ✅ Verify `.gitignore` includes all sensitive files:
+   - `.env`
+   - `.mcp.json`
+   - `*.key`
+   - `credentials.json`
+   - Any files containing secrets
+2. ✅ Run `git status` and review all files to be committed
+3. ✅ Run `git diff --cached` to inspect actual changes
+4. ✅ Search for potential secrets: API keys, tokens, passwords
+5. ✅ Confirm no accidental inclusion of config files with credentials
+
+### Emergency Response for Leaked Credentials
+If credentials are accidentally committed:
+1. **Immediately revoke/regenerate** the leaked credentials
+2. Remove from Git history using `git filter-branch`
+3. Force push to overwrite remote history
+4. Clean up refs and garbage collect
+5. Verify complete removal with `git log --all` and `git grep`
 
 ## Project Goals
 This is a news summary bulletin board application project for programming beginners.
@@ -34,7 +70,8 @@ This is a news summary bulletin board application project for programming beginn
 
 ## Project Structure
 - Single Python file implementation
-- `.env` file for API keys
+- `.env` file for API keys (⚠️ MUST be in `.gitignore`)
+- `.mcp.json` file for MCP tools API keys (⚠️ MUST be in `.gitignore`)
 - Clear function separation for each major feature
 - Beginner-friendly variable and function names
 

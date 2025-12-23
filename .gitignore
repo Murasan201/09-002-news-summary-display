@@ -55,3 +55,7 @@ assets/fonts/*.ttf
 # Reference projects (not part of main project)
 reference-oled/
 reference-project/
+
+# Investigation reports (internal use only)
+*_INVESTIGATION_REPORT.md
+*_REPORT.md

@@ -75,6 +75,13 @@ This is a news summary bulletin board application project for programming beginn
 - Clear function separation for each major feature
 - Beginner-friendly variable and function names
 
+## Hardware Configuration
+- **Display**: SSD1306 OLED (128x64, I2C)
+- **Connection**: Direct I2C connection (no level shifter required)
+- **Voltage**: 3.3V operation
+- **I2C Address**: 0x3C (default)
+- **Note**: Level shifter is NOT used in this project. The OLED operates at 3.3V and connects directly to Raspberry Pi's I2C pins (GPIO2/SDA, GPIO3/SCL)
+
 ## Repository Information
 - GitHub Repository: https://github.com/Murasan201/09-001-news-summary-display
 - Default branch: `main`
